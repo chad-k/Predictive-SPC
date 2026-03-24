@@ -14,7 +14,7 @@ What this app does
 - Includes colored status tiles for quick glance viewing
 
 Run:
-    streamlit run pred_spcv2.py
+    streamlit run predictive_spc.py
 """
 
 import datetime as dt
@@ -401,12 +401,7 @@ def add_features_and_targets(df: pd.DataFrame, future_horizon: int = 8) -> pd.Da
         if c.startswith("target_"):
             continue
         out[c] = out[c].replace([np.inf, -np.inf], np.nan)
-        col_median = out[c].median()
-        # Only fill NaN if median is valid; otherwise fill with 0.0 as fallback
-        if pd.notna(col_median):
-            out[c] = out[c].fillna(col_median)
-        else:
-            out[c] = out[c].fillna(0.0)
+        out[c] = out[c].fillna(out[c].median())
 
     out = out.dropna(subset=["target_future_oos", "target_future_rule"]).copy()
     out["target_future_oos"] = out["target_future_oos"].astype(int)
@@ -611,8 +606,7 @@ def make_status_tile_html(row) -> str:
     bg = color_map.get(status, "#cccccc")
     text_color = "#000000" if status == "Moderate" else "#ffffff"
 
-    # Safely convert is_oos_now to Yes/No, handling potential NaN
-    oos_now = "Yes" if (pd.notna(row["is_oos_now"]) and int(row["is_oos_now"]) == 1) else "No"
+    oos_now = "Yes" if int(row["is_oos_now"]) == 1 else "No"
 
     if status == "Critical":
         action = "Act now"
@@ -675,7 +669,7 @@ def get_demo_modeling_data(
     return raw, model_df
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def get_trained_models(model_df: pd.DataFrame) -> ModelBundle:
     return train_predictive_models(model_df)
 
@@ -941,9 +935,7 @@ with tab2:
             st.markdown("### Visual Status Board")
 
             status_order = {"Critical": 0, "High": 1, "Moderate": 2, "Low": 3}
-            status_df["status_rank"] = status_df["current_status"].map(
-                lambda x: status_order.get(x, 999)  # Default to 999 if unknown status
-            )
+            status_df["status_rank"] = status_df["current_status"].map(status_order)
             status_df = status_df.sort_values(
                 ["status_rank", "part_display", "machine_display"]
             ).reset_index(drop=True)
@@ -1004,26 +996,25 @@ with tab2:
                 lambda x: "Yes" if int(x) == 1 else "No"
             )
 
-            st.plotly_chart(
-                go.Figure(
-                    go.Bar(
-                        x=["Critical", "High", "Moderate", "Low"],
-                        y=[
-                            (status_df["current_status"] == "Critical").sum(),
-                            (status_df["current_status"] == "High").sum(),
-                            (status_df["current_status"] == "Moderate").sum(),
-                            (status_df["current_status"] == "Low").sum(),
-                        ],
-                        name="Combos",
-                    )
-                ).update_layout(
-                    title="Current Status Distribution",
-                    xaxis_title="Status",
-                    yaxis_title="Count",
-                    height=360,
-                ),
-                use_container_width=True,
+            fig_status = go.Figure(
+                go.Bar(
+                    x=["Critical", "High", "Moderate", "Low"],
+                    y=[
+                        (status_df["current_status"] == "Critical").sum(),
+                        (status_df["current_status"] == "High").sum(),
+                        (status_df["current_status"] == "Moderate").sum(),
+                        (status_df["current_status"] == "Low").sum(),
+                    ],
+                    name="Combos",
+                )
             )
+            fig_status.update_layout(
+                title="Current Status Distribution",
+                xaxis_title="Status",
+                yaxis_title="Count",
+                height=360,
+            )
+            st.plotly_chart(fig_status, use_container_width=True)
 
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
